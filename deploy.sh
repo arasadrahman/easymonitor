@@ -9,6 +9,8 @@ APP_DOMAIN="${APP_DOMAIN:-${1:-}}"
 TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-traefik}"
 TRAEFIK_ENTRYPOINT="${TRAEFIK_ENTRYPOINT:-websecure}"
 TRAEFIK_CERTRESOLVER="${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
 
 fail() {
     echo "ERROR: $*" >&2
@@ -80,8 +82,12 @@ set_env TRAEFIK_NETWORK "$TRAEFIK_NETWORK"
 set_env TRAEFIK_ENTRYPOINT "$TRAEFIK_ENTRYPOINT"
 set_env TRAEFIK_CERTRESOLVER "$TRAEFIK_CERTRESOLVER"
 set_env COMPOSE_FILE "docker-compose.yml:docker-compose.production.yml"
+set_env PUID "$PUID"
+set_env PGID "$PGID"
 
-chmod 600 .env
+# PHP-FPM runs as PUID:PGID and must be able to read Laravel's environment.
+chown "root:${PGID}" .env
+chmod 640 .env
 
 "${COMPOSE[@]}" -p easymonitor \
     -f docker-compose.yml \
@@ -92,6 +98,12 @@ chmod 600 .env
     -f docker-compose.yml \
     -f docker-compose.production.yml \
     exec -T php bash /var/www/html/docker/scripts/setup.sh
+
+"${COMPOSE[@]}" -p easymonitor \
+    -f docker-compose.yml \
+    -f docker-compose.production.yml \
+    exec -T --user "$PUID:$PGID" php test -r /var/www/html/.env \
+    || fail "PHP-FPM user cannot read $DEPLOY_DIR/.env"
 
 "${COMPOSE[@]}" -p easymonitor \
     -f docker-compose.yml \
