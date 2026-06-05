@@ -130,7 +130,23 @@ done
 "${COMPOSE[@]}" -p easymonitor \
     -f docker-compose.yml \
     -f docker-compose.production.yml \
-    up -d --force-recreate php probe worker scheduler
+    exec -T php php artisan horizon:terminate >/dev/null 2>&1 || true
+
+"${COMPOSE[@]}" -p easymonitor \
+    -f docker-compose.yml \
+    -f docker-compose.production.yml \
+    up -d --force-recreate php probe
+
+"${COMPOSE[@]}" -p easymonitor \
+    -f docker-compose.yml \
+    -f docker-compose.production.yml \
+    restart -t 30 scheduler
+
+# Nginx resolves the PHP container IP at startup, so recreate it after PHP.
+"${COMPOSE[@]}" -p easymonitor \
+    -f docker-compose.yml \
+    -f docker-compose.production.yml \
+    up -d --force-recreate nginx
 
 "${COMPOSE[@]}" -p easymonitor \
     -f docker-compose.yml \
