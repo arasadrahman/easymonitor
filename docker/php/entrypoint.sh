@@ -9,12 +9,6 @@ set -e
 
 WEB_DIRS="storage bootstrap/cache"
 
-if ! su -s /bin/sh www-data -c 'test -r /var/www/html/.env'; then
-    echo "entrypoint: /var/www/html/.env is not readable by the PHP-FPM user" >&2
-    echo "entrypoint: set ownership to root:www-data and mode to 640" >&2
-    exit 1
-fi
-
 if [ -d /var/www/html/storage ]; then
     # Only chown if not already owned by www-data — avoids slow recursive
     # chown on every restart when perms are already correct.

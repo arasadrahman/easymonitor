@@ -1,24 +1,20 @@
 FROM php:8.4-fpm-alpine
 
-# ––––– system deps –––––
+# Runtime dependencies stay small; compilers and headers are removed afterward.
 RUN apk add --no-cache \
-      $PHPIZE_DEPS \
-      linux-headers shadow \
-      supervisor bash postgresql-dev postgresql-client redis nodejs npm iputils \
+      shadow bash postgresql-client redis nodejs npm iputils fcgi \
+ && apk add --no-cache --virtual .build-deps \
+      $PHPIZE_DEPS linux-headers postgresql-dev \
  && docker-php-ext-install -j$(nproc) \
       pdo_pgsql pgsql opcache sockets bcmath pcntl \
  && pecl install redis \
- && docker-php-ext-enable redis pcntl sockets \
- && apk del $PHPIZE_DEPS
+ && docker-php-ext-enable redis \
+ && apk del .build-deps
 
 # ––––– Composer –––––
 COPY --from=composer:2.8 /usr/bin/composer /usr/bin/composer
 
-# ––––– Match www-data to the host user that owns the bind mount –––––
-# The repo is bind-mounted from the host where files are owned by UID 1000.
-# Retarget www-data to UID 1000 so php-fpm (and anything else running as
-# www-data) can read/write the mounted files without chown gymnastics.
-# Override at build time: --build-arg PUID=1001 --build-arg PGID=1001
+# Match www-data to the deployment host's application UID/GID.
 ARG PUID=1000
 ARG PGID=1000
 RUN groupmod -o -g "${PGID}" www-data \
@@ -29,11 +25,9 @@ WORKDIR /var/www/html
 
 # ––––– Entrypoint: ensure writable dirs on every start –––––
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-# ––––– Supervisord –––––
-RUN mkdir -p /var/log/supervisor
-COPY supervisord.conf /etc/supervisord.conf
+COPY healthcheck.sh /usr/local/bin/php-fpm-healthcheck
+COPY health.conf /usr/local/etc/php-fpm.d/zz-health.conf
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/php-fpm-healthcheck
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/usr/bin/supervisord","-c","/etc/supervisord.conf"]
+CMD ["php-fpm"]

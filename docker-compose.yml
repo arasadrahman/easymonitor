@@ -6,7 +6,7 @@ services:
             - "127.0.0.1:${APP_PORT:-8080}:8080"
         depends_on:
             php:
-                condition: service_started
+                condition: service_healthy
         volumes:
             - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
             - ./public:/srv:ro
@@ -24,15 +24,18 @@ services:
                 max-file: "3"
 
     php:
-        build:
+        build: &php-build
             context: ./docker/php
             args:
                 PUID: ${PUID:-1000}
                 PGID: ${PGID:-1000}
         restart: unless-stopped
-        volumes:
+        env_file: &php-env-file
+            - path: .env
+              required: false
+        volumes: &php-volumes
             - .:/var/www/html
-        environment:
+        environment: &php-environment
             APP_ENV: ${APP_ENV:-local}
             DB_HOST: db
             DB_DATABASE: ${DB_DATABASE:-easymonitor}
@@ -40,6 +43,50 @@ services:
             DB_PASSWORD: ${DB_PASSWORD:-secret}
             REDIS_HOST: redis
             REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+        networks: [app]
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "php-fpm-healthcheck"]
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 20s
+        logging: *default-logging
+
+    worker:
+        build: *php-build
+        restart: unless-stopped
+        command: ["php", "artisan", "horizon"]
+        stop_grace_period: 1h
+        env_file: *php-env-file
+        volumes: *php-volumes
+        environment: *php-environment
+        networks: [app]
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "php", "artisan", "horizon:status"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
+        logging: *default-logging
+
+    scheduler:
+        build: *php-build
+        restart: unless-stopped
+        command: ["php", "artisan", "schedule:work"]
+        stop_grace_period: 30s
+        env_file: *php-env-file
+        volumes: *php-volumes
+        environment: *php-environment
         networks: [app]
         depends_on:
             db:

@@ -21,6 +21,14 @@ random_secret() {
     openssl rand -hex 32
 }
 
+laravel_key() {
+    printf 'base64:%s' "$(openssl rand -base64 32 | tr -d '\n')"
+}
+
+env_value() {
+    grep -E "^${1}=" .env 2>/dev/null | head -n1 | cut -d= -f2-
+}
+
 set_env() {
     local key="$1"
     local value="$2"
@@ -73,6 +81,15 @@ if [ ! -f .env ]; then
     set_env REDIS_PASSWORD "$(random_secret)"
 fi
 
+[ -n "$(env_value DB_PASSWORD)" ] && [ "$(env_value DB_PASSWORD)" != "change-me" ] \
+    || set_env DB_PASSWORD "$(random_secret)"
+[ -n "$(env_value REDIS_PASSWORD)" ] \
+    || set_env REDIS_PASSWORD "$(random_secret)"
+[ -n "$(env_value APP_KEY)" ] \
+    || set_env APP_KEY "$(laravel_key)"
+[ -n "$(env_value JWT_SECRET)" ] \
+    || set_env JWT_SECRET "$(random_secret)"
+
 set_env APP_ENV production
 set_env APP_DEBUG false
 set_env APP_URL "https://${APP_DOMAIN}"
@@ -85,7 +102,7 @@ set_env COMPOSE_FILE "docker-compose.yml:docker-compose.production.yml"
 set_env PUID "$PUID"
 set_env PGID "$PGID"
 
-# PHP-FPM runs as PUID:PGID and must be able to read Laravel's environment.
+# Keep the file readable for CLI commands while Compose injects values into PHP.
 chown "root:${PGID}" .env
 chmod 640 .env
 
@@ -93,6 +110,17 @@ chmod 640 .env
     -f docker-compose.yml \
     -f docker-compose.production.yml \
     up -d --build --remove-orphans
+
+for attempt in $(seq 1 60); do
+    if "${COMPOSE[@]}" -p easymonitor \
+        -f docker-compose.yml \
+        -f docker-compose.production.yml \
+        exec -T php php -v >/dev/null 2>&1; then
+        break
+    fi
+    [ "$attempt" -lt 60 ] || fail "PHP container did not become ready"
+    sleep 2
+done
 
 "${COMPOSE[@]}" -p easymonitor \
     -f docker-compose.yml \
@@ -102,13 +130,12 @@ chmod 640 .env
 "${COMPOSE[@]}" -p easymonitor \
     -f docker-compose.yml \
     -f docker-compose.production.yml \
-    exec -T --user "$PUID:$PGID" php test -r /var/www/html/.env \
-    || fail "PHP-FPM user cannot read $DEPLOY_DIR/.env"
+    up -d --force-recreate php probe worker scheduler
 
 "${COMPOSE[@]}" -p easymonitor \
     -f docker-compose.yml \
     -f docker-compose.production.yml \
-    up -d --force-recreate probe
+    up -d --wait --wait-timeout 180
 
 echo "EasyMonitor deployed: https://${APP_DOMAIN}"
 echo "Directory: ${DEPLOY_DIR}"
