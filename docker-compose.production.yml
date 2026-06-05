@@ -6,37 +6,36 @@
 # Or set COMPOSE_FILE in your shell / .env:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.production.yml
 #
-# What this changes vs the default dev compose:
-#   - Caddy uses Caddyfile.production (real HTTPS via Let's Encrypt + on-demand TLS for status pages)
-#   - PostgreSQL no longer publishes port 5432 to the host (DB stays internal to the docker network)
-#   - APP_ENV / APP_DEBUG forced to production values
-#   - All services restart automatically on host reboot
+# Traefik must already be running and attached to the external network named
+# by TRAEFIK_NETWORK (default: traefik).
 
 services:
-    caddy:
-        volumes:
-            - ./docker/caddy/Caddyfile.production:/etc/caddy/Caddyfile:ro
-            - caddy_data:/data
-            - caddy_config:/config
-            - ./public:/srv
-        restart: unless-stopped
-
     nginx:
-        restart: unless-stopped
+        ports: !reset []
+        networks:
+            - app
+            - traefik
+        labels:
+            traefik.enable: "true"
+            traefik.docker.network: "${TRAEFIK_NETWORK:-traefik}"
+            traefik.http.routers.easymonitor.rule: "Host(`${APP_DOMAIN:?Set APP_DOMAIN in .env}`)"
+            traefik.http.routers.easymonitor.entrypoints: "${TRAEFIK_ENTRYPOINT:-websecure}"
+            traefik.http.routers.easymonitor.tls: "true"
+            traefik.http.routers.easymonitor.tls.certresolver: "${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+            traefik.http.routers.easymonitor.service: "easymonitor"
+            traefik.http.services.easymonitor.loadbalancer.server.port: "8080"
+            traefik.http.middlewares.easymonitor-headers.headers.stsSeconds: "31536000"
+            traefik.http.middlewares.easymonitor-headers.headers.stsIncludeSubdomains: "true"
+            traefik.http.middlewares.easymonitor-headers.headers.contentTypeNosniff: "true"
+            traefik.http.middlewares.easymonitor-headers.headers.frameDeny: "true"
+            traefik.http.routers.easymonitor.middlewares: "easymonitor-headers"
 
     php:
         environment:
             APP_ENV: production
             APP_DEBUG: "false"
-        restart: unless-stopped
 
-    db:
-        # Remove host port mapping — DB is only reachable inside the docker network.
-        ports: !reset []
-        restart: unless-stopped
-
-    redis:
-        restart: unless-stopped
-
-    probe:
-        restart: unless-stopped
+networks:
+    traefik:
+        external: true
+        name: "${TRAEFIK_NETWORK:-traefik}"

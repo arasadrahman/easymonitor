@@ -27,7 +27,7 @@ EasyMonitor is a full-stack monitoring platform for your websites and APIs. Add 
   - Hide specific monitors per page
   - Themes, custom CSS, logo upload
   - Incidents and scheduled maintenance with timeline updates
-  - Custom domains with auto-HTTPS via Caddy on-demand TLS
+  - Verified custom domains for status pages
 - **TimescaleDB** — efficient time-series storage for check results
 - **Redis Streams** — reliable job bus between scheduler, probes, and result consumer
 - **Laravel Horizon** — queue dashboard for ops visibility
@@ -62,7 +62,7 @@ EasyMonitor is a full-stack monitoring platform for your websites and APIs. Add 
 - **Probe:** Go 1.24 (separate binary, multi-architecture)
 - **Database:** PostgreSQL 18 + TimescaleDB 2.26
 - **Message bus:** Redis 7 Streams
-- **Web:** Caddy 2.10 (HTTPS) → Nginx → PHP-FPM (with Supervisor + Horizon)
+- **Web:** Traefik (HTTPS) → Nginx → PHP-FPM (with Supervisor + Horizon)
 
 ## Quick start
 
@@ -75,15 +75,34 @@ EasyMonitor is a full-stack monitoring platform for your websites and APIs. Add 
 ### One command
 
 ```bash
-git clone https://github.com/easymonitordev/easymonitor.git
+git clone https://github.com/arasadrahman/easymonitor.git
 cd easymonitor
 ./setup.sh
+```
+
+### Existing Traefik server
+
+Deploys to `/opt/easymonitor`. Docker and Traefik must already exist.
+
+```bash
+git clone https://github.com/arasadrahman/easymonitor.git /tmp/easymonitor
+cd /tmp/easymonitor
+sudo ./deploy.sh monitor.example.com
+```
+
+Optional existing Traefik settings:
+
+```bash
+sudo TRAEFIK_NETWORK=traefik \
+    TRAEFIK_ENTRYPOINT=websecure \
+    TRAEFIK_CERTRESOLVER=letsencrypt \
+    ./deploy.sh monitor.example.com
 ```
 
 The installer is interactive and walks through:
 
 1. **Mode** — local development or production
-2. **Domain + admin email** (production only) — auto-detects your server's public IP and verifies DNS
+2. **Domain + Traefik settings** (production only) — verifies DNS and connects to your existing proxy network
 3. **Database** — auto-generates strong password in production
 4. **Redis password** — optional
 5. **Registration policy** — open or first-user-only
@@ -94,7 +113,7 @@ The installer is interactive and walks through:
 It then:
 
 - Writes `.env`
-- Patches `docker/caddy/Caddyfile.production` for production installs
+- Adds the production Traefik Compose override
 - Builds and starts all containers
 - Generates app key, JWT secret, probe token
 - Runs migrations
@@ -130,14 +149,9 @@ docker compose up -d --scale probe=0
 
 ## Custom domains for status pages
 
-When using the production Caddyfile (configured automatically by `setup.sh` for production installs), customers can point their own domain at your EasyMonitor instance:
-
-1. In the status page settings, they enter `status.theircompany.com`
-2. They add the displayed TXT record at their DNS provider for verification
-3. They CNAME their domain to your EasyMonitor host (gray cloud / DNS only on Cloudflare)
-4. Click **Verify Domain** in the UI
-
-Caddy then provisions a Let's Encrypt certificate automatically on the first request via on-demand TLS. The app gates which domains are allowed via a `/caddy/ask` endpoint that checks the `domain_verified_at` flag.
+Domain verification remains available in the app. Serving arbitrary customer
+domains with HTTPS requires Traefik dynamic configuration or another certificate
+automation service; the included Docker labels configure only `APP_DOMAIN`.
 
 ## Notifications
 

@@ -371,7 +371,7 @@ docker compose exec php php artisan optimize:clear
 ### Hard reset (destroys all data)
 
 ```bash
-docker compose down -v      # removes containers + volumes (DB, Redis, Caddy certs)
+docker compose down -v      # removes containers and DB/Redis volumes
 docker compose rm -f
 docker rmi easymonitor-php easymonitor-probe 2>/dev/null
 rm -f .env

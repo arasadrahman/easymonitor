@@ -6,9 +6,8 @@
 #   1. Ask whether this is a Local (dev) or Production install
 #   2. Collect required (and optional) configuration interactively
 #   3. Generate or update .env
-#   4. Patch docker/caddy/Caddyfile.production for production installs
-#   5. Build and start the docker stack
-#   6. Run migrations, generate keys, build assets, set up storage
+#   4. Build and start the docker stack
+#   5. Run migrations, generate keys, build assets, set up storage
 #
 # Re-running is safe: it will detect existing config and offer to keep it.
 
@@ -131,7 +130,7 @@ BANNER
 # ── mode ────────────────────────────────────────────────────────────────────
 header "Install mode"
 echo "  1) Local development"
-echo "  2) Production (auto-HTTPS via Let's Encrypt + on-demand TLS for status pages)"
+echo "  2) Production (behind an existing Traefik stack)"
 echo ""
 MODE=""
 while [[ "$MODE" != "1" && "$MODE" != "2" ]]; do
@@ -188,18 +187,16 @@ if $IS_PROD; then
         confirm "Continue anyway? (TLS will fail until DNS propagates)" || fail "Aborting. Fix DNS and re-run."
     fi
 
-    ADMIN_EMAIL=$(ask "Admin email (for Let's Encrypt notifications)" "")
-    [ -z "$ADMIN_EMAIL" ] && fail "Admin email is required for production"
-
     set_env APP_ENV "production"
     set_env APP_DEBUG "false"
     set_env APP_URL "https://${DOMAIN}"
+    set_env APP_DOMAIN "$DOMAIN"
     ok "App URL set to https://${DOMAIN}"
 else
     set_env APP_ENV "local"
     set_env APP_DEBUG "true"
-    set_env APP_URL "http://localhost"
-    ok "App URL set to http://localhost"
+    set_env APP_URL "http://localhost:8080"
+    ok "App URL set to http://localhost:8080"
 fi
 
 # ── database ────────────────────────────────────────────────────────────────
@@ -447,24 +444,19 @@ case "$STORE_CHOICE" in
         ;;
 esac
 
-# ── patch production Caddyfile ──────────────────────────────────────────────
+# ── configure production compose ───────────────────────────────────────────
 if $IS_PROD; then
-    header "Patching Caddyfile.production"
+    header "Configuring Traefik"
+    TRAEFIK_NETWORK=$(ask "External Traefik Docker network" "traefik")
+    TRAEFIK_ENTRYPOINT=$(ask "Traefik HTTPS entrypoint" "websecure")
+    TRAEFIK_CERTRESOLVER=$(ask "Traefik certificate resolver" "letsencrypt")
+    set_env TRAEFIK_NETWORK "$TRAEFIK_NETWORK"
+    set_env TRAEFIK_ENTRYPOINT "$TRAEFIK_ENTRYPOINT"
+    set_env TRAEFIK_CERTRESOLVER "$TRAEFIK_CERTRESOLVER"
 
-    CADDYFILE="docker/caddy/Caddyfile.production"
+    docker network inspect "$TRAEFIK_NETWORK" >/dev/null 2>&1 \
+        || fail "Docker network '$TRAEFIK_NETWORK' does not exist. Create it or start Traefik first."
 
-    # Replace email and domain placeholders.
-    sed -i.bak \
-        -e "s/admin@your-domain.com/${ADMIN_EMAIL}/g" \
-        -e "s/your-domain.com/${DOMAIN}/g" \
-        "$CADDYFILE"
-    rm -f "${CADDYFILE}.bak"
-
-    ok "Caddyfile.production updated for ${DOMAIN}"
-
-    # Ensure docker compose uses the production override automatically.
-    # Merge with whatever is already set (e.g. remote-probes override added
-    # earlier in this script) so we don't clobber previous choices.
     CURRENT_CF=$(grep -E '^COMPOSE_FILE=' .env 2>/dev/null | head -n1 | cut -d= -f2- || echo "")
     [ -z "$CURRENT_CF" ] && CURRENT_CF="docker-compose.yml"
     if [[ "$CURRENT_CF" != *"production.yml"* ]]; then
@@ -475,7 +467,7 @@ if $IS_PROD; then
         [[ "$CURRENT_CF" != *"production.yml"* ]] && CURRENT_CF="docker-compose.yml:docker-compose.production.yml:${CURRENT_CF}"
     fi
     set_env COMPOSE_FILE "$CURRENT_CF"
-    ok "COMPOSE_FILE set so production overrides apply by default."
+    ok "Production Compose configured for Traefik network '$TRAEFIK_NETWORK'."
 fi
 
 # ── build & start docker ────────────────────────────────────────────────────
@@ -510,14 +502,14 @@ if $IS_PROD; then
     else
         echo "    1. Make sure DNS A record for ${DOMAIN} points to this server."
     fi
-    echo "    2. Open https://${DOMAIN} — Caddy will provision the TLS cert on first request."
+    echo "    2. Open https://${DOMAIN} — Traefik will provision the TLS certificate."
     echo "    3. Sign up to create the admin user (registration auto-locks after the first user)."
-    echo "    4. Tail logs:  docker compose logs -f php  (or caddy / probe)"
+    echo "    4. Tail logs:  docker compose logs -f php  (or nginx / probe)"
 else
-    ok "EasyMonitor is running at http://localhost"
+    ok "EasyMonitor is running at http://localhost:8080"
     echo ""
     echo "  Next steps:"
-    echo "    1. Open http://localhost"
+    echo "    1. Open http://localhost:8080"
     echo "    2. Click Sign In → Sign up to create your account"
     echo "    3. Add your first monitor"
 fi

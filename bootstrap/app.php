@@ -11,10 +11,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Trust Caddy / Nginx in front of us so Laravel sees the original
+        // Trust Traefik / Nginx in front of us so Laravel sees the original
         // scheme (https), host, and client IP from X-Forwarded-* headers.
-        // We trust any upstream — our Caddy + Nginx live in the docker
-        // network in front of PHP-FPM and terminate TLS.
+        // PHP-FPM is only reachable through Nginx on the Docker network.
         $middleware->trustProxies(at: ['0.0.0.0/0', '::/0']);
     })
     ->withExceptions(function (Exceptions $exceptions) {

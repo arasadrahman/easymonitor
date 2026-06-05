@@ -1,7 +1,6 @@
 # Docker Setup Guide
 
 This project uses Docker for local development with the following services:
-- **Caddy** - Web server and reverse proxy
 - **Nginx** - Application server
 - **PHP 8.4** - PHP-FPM with supervisor, Node.js, and monitoring extensions
 - **PostgreSQL 16 + TimescaleDB** - Database with time-series support
@@ -52,7 +51,7 @@ docker compose up -d --build
 
 This will:
 - Build the PHP container with all necessary extensions (including Node.js/NPM)
-- Start all services (Caddy, Nginx, PHP, PostgreSQL, Redis)
+- Start all services (Nginx, PHP, PostgreSQL, Redis)
 - Automatically create the database and user with your credentials
 - Enable the TimescaleDB extension
 
@@ -71,7 +70,7 @@ This will:
 
 ### Access the Application
 
-- **HTTP:** http://localhost
+- **HTTP:** http://localhost:8080
 - **HTTPS:** Not enabled for local development (to avoid certificate warnings)
 
 To use `http://easymonitor.local`, add this to your `/etc/hosts` file:
@@ -158,14 +157,16 @@ If you want to change database credentials after initial setup:
 
 ## Production Deployment
 
-For production, use the production Caddyfile:
+Production expects Traefik to be running in another Compose project.
 
-1. Update `docker/caddy/Caddyfile.production` with your domain
-2. Mount it in docker-compose.yml:
-   ```yaml
-   - ./docker/caddy/Caddyfile.production:/etc/caddy/Caddyfile:ro
-   ```
-3. Caddy will automatically obtain and renew SSL certificates
+Deploy to `/opt/easymonitor`:
+
+```bash
+sudo ./deploy.sh monitor.example.com
+```
+
+The script reuses Docker and the existing `traefik` network. It does not install
+or start another Traefik instance.
 
 ## Troubleshooting
 
@@ -179,11 +180,9 @@ docker compose restart
 Check that the database credentials in `.env` match the ones used when you first started Docker.
 
 ### Port Already in Use
-If ports 80 or 443 are already in use, stop other services or change the ports in `docker-compose.yml`:
+If local port 8080 is already in use, set `APP_PORT` in `.env`:
 ```yaml
-ports:
-    - "8080:80"
-    - "8443:443"
+APP_PORT=8081
 ```
 
-Then access via http://localhost:8080
+Then access via http://localhost:8081
